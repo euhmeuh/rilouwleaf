@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>RilouwLeaf - Interactive Organizer</title>
+  <style type="text/css">
+    html, body {
+      height: 100%;
+      padding: 0;
+      margin: 0;
+    }
+
+    svg {
+      display: block;
+    }
+
+    circle.handle {
+      opacity: 0.0;
+      transition: opacity 500ms;
+    }
+
+    circle.handle:hover {
+      opacity: 1.0;
+    }
+  </style>
+</head>
+<body>
+  <svg id="area" width="100%" height="100%"></svg>
+  <script type="text/javascript" src="../rilouweb/_.js"></script>
+  <script type="text/javascript" src="../rilouweb/page.js"></script>
+  <script type="text/javascript">
+    const svgNS = 'http://www.w3.org/2000/svg';
+
+    function hintToVec(hint) {
+      switch(hint) {
+        case 'lt': return vec(-1, -1); // left top
+        case 'mt': return vec( 0, -1); // middle top
+        case 'rt': return vec( 1, -1); // right top
+        case 'lm': return vec(-1,  0); // left middle
+        case 'rm': return vec( 1,  0); // right middle
+        case 'lb': return vec(-1,  1); // left bottom
+        case 'mb': return vec( 0,  1); // middle bottom
+        case 'rb': return vec( 1,  1); // right bottom
+      }
+      throw "Bad hint";
+    }
+
+    function vecAdd(a, b) {
+      return vec(a.x+b.x, a.y+b.y);
+    }
+
+    function vecMul(a, b) {
+      return vec(a.x*b.x, a.y*b.y);
+    }
+
+    function vecHint(a, hint) {
+      return vecMul(a, hintToVec(hint));
+    }
+
+    function vec(x, y) {
+      return {x, y};
+    }
+
+    class Block {
+      constructor(attrs) {
+        Object.assign(this, attrs);
+      }
+
+      init(schema) {
+        this.dom = Page.createElementFromJson({
+          tag: 'g',
+          attrs: { transform: this.getTransform() },
+          children: [
+            {
+              tag: 'rect',
+              attrs: {
+                fill: '#ececec',
+                width: this.size.x,
+                height: this.size.y
+              },
+            },
+            {
+              tag: 'text',
+              attrs: { x: 5, y: 15, fill: '#808080' },
+              children: [
+                { tag: 'tspan', text: this.text }
+              ]
+            },
+          ]
+        }, svgNS);
+      }
+
+      getTransform() {
+        return `translate(${this.pos.x || 0},${this.pos.y || 0})`;
+      }
+
+      update(schema) {
+        this.dom.setAttribute('transform', this.getTransform());
+      }
+    }
+
+    class Textbox {
+      constructor(attrs) {
+        Object.assign(this, attrs);
+      }
+
+      init(schema) {
+        const hints = ['lt','mt','rt','lm','rm','lb','mb','rb'];
+        this.dom = Page.createElementFromJson({
+          tag: 'g',
+          attrs: { transform: this.getTransform() },
+          children: [
+            {
+              tag: 'rect',
+              attrs: {
+                fill: 'white',
+                "fill-opacity": 0.0,
+                stroke: '#000000',
+                "stroke-width": '2',
+                width: this.size.x,
+                height: this.size.y
+              },
+            },
+            {
+              tag: 'text',
+              attrs: { x: 5, y: 15 },
+              children: [
+                { tag: 'tspan', text: this.text }
+              ]
+            },
+            ...hints.map((h) => {
+              const handle = this.getHandle(h);
+              return {
+                tag: 'circle',
+                attrs: {
+                  class: 'handle',
+                  fill: '#000000',
+                  cx: handle.x,
+                  cy: handle.y,
+                  r: 8
+                }
+              };
+            }),
+          ]
+        }, svgNS);
+      }
+
+      getTransform() {
+        return `translate(${this.pos.x || 0},${this.pos.y || 0})`;
+      }
+
+      getHandle(hint) {
+        const center = vecMul(this.size, vec(0.5, 0.5));
+        const direction = vecMul(center, hintToVec(hint));
+        return vecAdd(center, direction);
+      }
+
+      update(schema) {
+        this.dom.setAttribute('transform', this.getTransform());
+      }
+    }
+
+    class Link {
+      constructor(srcId, srcHint, dstId, dstHint) {
+        this.from = { id: srcId, hint: srcHint };
+        this.to = { id: dstId, hint: dstHint };
+      }
+
+      init(schema) {
+        this.dom = Page.createElementFromJson({
+          tag: 'path',
+          attrs: {
+            d: this.makePath(schema),
+            fill: 'none',
+            stroke: '#000000',
+            "stroke-width": '2',
+          },
+        }, svgNS);
+      }
+
+      makePath(schema) {
+        const eltSrc = schema.content.find(e => e.id == this.from.id);
+        const eltDst = schema.content.find(e => e.id == this.to.id);
+        const src = vecAdd(eltSrc.getHandle(this.from.hint), eltSrc.pos);
+        const dst = vecAdd(eltDst.getHandle(this.to.hint), eltDst.pos);
+        const psrc = vecAdd(vecHint(vec(50, 50), this.from.hint), src);
+        const pdst = vecAdd(vecHint(vec(50, 50), this.to.hint), dst);
+        return `M ${src.x},${src.y} C ${psrc.x},${psrc.y} ${pdst.x},${pdst.y} ${dst.x},${dst.y}`
+      }
+
+      update(schema) {
+        this.dom.setAttribute('d', this.makePath(schema));
+      }
+    }
+
+    Page.onload(() => {
+      schema = {
+        name: 'Hello world',
+        content: [
+          new Block({
+            pos: vec(40,40),
+            size: vec(360,180),
+            text: 'First block'
+          }),
+          new Block({
+            pos: vec(450,50),
+            size: vec(360,160),
+            text: 'Second block'
+          }),
+          new Textbox({
+            id: 1,
+            pos: vec(50,90),
+            size: vec(80,40),
+            text: "Hello"
+          }),
+          new Textbox({
+            id: 2,
+            pos: vec( 190, 110),
+            size: vec(80,40),
+            text: "World"
+          }),
+          new Textbox({
+            id: 3,
+            pos: vec(470,70),
+            size: vec(80,40),
+            text: "Awesome!"
+          }),
+          new Link(1, 'rm', 2, 'lm'),
+          new Link(2, 'mb', 3, 'lm')
+        ]
+      };
+
+      function renderSchema(area, schema) {
+        let svgElement;
+        schema.content.forEach((element) => {
+          element.init(schema);
+          area.appendChild(element.dom);
+        });
+      }
+
+      function updateSchema(schema) {
+        schema.content.forEach(element => element.update(schema));
+      }
+
+      function findElementByCoordinates(schema, pos) {
+        return schema.content
+          .filter(elt => (elt instanceof Block) || (elt instanceof Textbox))
+          .find((elt) => {
+            return pos.x >= elt.pos.x
+              && pos.x <= elt.pos.x+elt.size.x
+              && pos.y >= elt.pos.y
+              && pos.y <= elt.pos.y+elt.size.y;
+          });
+      }
+
+      const area = Page.get('#area');
+      let selectedElement = null;
+      renderSchema(area, schema);
+
+      area.addEventListener('mousedown', (e) => {
+        selectedElement = findElementByCoordinates(schema, vec(e.clientX, e.clientY))
+        console.log(selectedElement);
+      });
+
+      area.addEventListener('mouseup', (e) => {
+        selectedElement = null;
+      });
+
+      area.addEventListener('mousemove', (e) => {
+        if (selectedElement) {
+          selectedElement.pos = vec(e.clientX, e.clientY);
+          updateSchema(schema);
+        }
+      });
+    });
+  </script>
+</body>
+</html>
